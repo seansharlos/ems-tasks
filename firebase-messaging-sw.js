@@ -1,7 +1,7 @@
 // שירות רקע (Service Worker) — אחראי להציג את הפוש עם כפתורי כן/לא, וללחוץ עליהם.
 // שלב מאוחר יותר בהדרכה: אחרי שתפרסו את הפונקציות ב-Firebase, תקבלו כתובת ל-respondDailyPrompt.
 // הדביקו אותה כאן במקום המחרוזת PASTE_RESPOND_FUNCTION_URL_HERE.
-const RESPOND_URL = 'PASTE_RESPOND_FUNCTION_URL_HERE';
+const RESPOND_URL = 'https://us-central1-my-task-app-edd73.cloudfunctions.net/respondDailyPrompt';
 
 self.addEventListener('push', function (event) {
   let payload = {};
