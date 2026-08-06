@@ -3,6 +3,10 @@
 // הדביקו אותה כאן במקום המחרוזת PASTE_RESPOND_FUNCTION_URL_HERE.
 const RESPOND_URL = 'https://us-central1-my-task-app-edd73.cloudfunctions.net/respondDailyPrompt';
 
+// דואג שגרסאות עתידיות של הקובץ הזה "יתפסו" מיד, בלי להישאר תקועים על גרסה ישנה
+self.addEventListener('install', function () { self.skipWaiting(); });
+self.addEventListener('activate', function (event) { event.waitUntil(self.clients.claim()); });
+
 self.addEventListener('push', function (event) {
   let payload = {};
   try { payload = event.data ? event.data.json() : {}; } catch (e) { payload = {}; }
