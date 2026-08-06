@@ -215,6 +215,10 @@ async function loadData(silent){
     ensureFirebase();
     const rows = await fetchTasksFromServer();
     state.tasks = rows.map(r=>({id:r.id,title:r.title,category:r.category,urgent:!!r.urgent,important:!!r.important,deadline:r.deadline||null,done:!!r.done,subtasks:Array.isArray(r.subtasks)?r.subtasks:[]}));
+    try{
+      const tokDoc = await db.collection('device_tokens').doc('phone').get();
+      notifStatus = tokDoc.exists ? 'on' : 'off';
+    }catch(e){ /* לא קריטי - משאירים unknown */ }
     state.syncStatus='ok'; state.syncError=null;
   }catch(e){
     state.syncStatus='error'; state.syncError = e.message || String(e);
