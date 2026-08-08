@@ -119,11 +119,17 @@
     body *{visibility:hidden;}
     #print-view, #print-view *{visibility:visible;}
     #print-view{display:block;position:absolute;top:0;right:0;left:0;background:#fff;color:#111;padding:20px;direction:rtl;font-family:Arial,sans-serif;}
-    #print-view h1{font-size:20px;margin:0 0 4px;}
-    #print-view .pdate{font-size:12px;color:#555;margin-bottom:18px;}
-    #print-view h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:4px;}
-    #print-view ul{margin:0;padding-inline-start:20px;}
-    #print-view li{margin-bottom:6px;font-size:13px;}
+    #print-view h1{font-size:26px;margin:0 0 6px;text-align:center;font-weight:800;}
+    #print-view .pdate{font-size:12px;color:#555;margin-bottom:20px;text-align:center;}
+    #print-view h2{font-size:15px;margin:18px 0 6px;padding-bottom:4px;border-bottom:2px solid currentColor;}
+    #print-view h2.q0{color:#C0392B;}
+    #print-view h2.q1{color:#C77C11;}
+    #print-view h2.q2{color:#16796B;}
+    #print-view h2.q3{color:#5b6b78;}
+    #print-view ul{margin:0;padding-inline-start:4px;list-style:none;}
+    #print-view li{margin-bottom:7px;font-size:13px;color:#111;}
+    #print-view li.sub{font-size:11px;margin-bottom:5px;margin-inline-end:22px;color:#222;}
+    #print-view .box{display:inline-block;width:14px;font-size:14px;}
     #print-view .cat{color:#666;}
   }
 </style>
@@ -478,17 +484,23 @@ function render(){
 function exportPdf(){
   const open = state.tasks.filter(t=>!t.done);
   const labels = ['דחוף וחשוב','חשוב, לא דחוף','דחוף, לא חשוב','לא דחוף ולא חשוב'];
-  const today = new Date().toLocaleDateString('he-IL', {weekday:'long', year:'numeric', month:'2-digit', day:'2-digit'});
-  let html = `<h1>סדר עדיפויות יומי</h1><div class="pdate">${escapeHtml(today)}</div>`;
+  const qClass = ['q0','q1','q2','q3'];
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('he-IL', {weekday:'long', year:'numeric', month:'2-digit', day:'2-digit'});
+  const timeStr = now.toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'});
+  let html = `<h1>רשימת משימות - הראל ששון</h1><div class="pdate">הופק ב-${escapeHtml(dateStr)}, בשעה ${escapeHtml(timeStr)}</div>`;
   let any = false;
   for(let q=0;q<4;q++){
     const items = sortTasks(open.filter(t=>quadOf(t)===q));
     if(!items.length) continue;
     any = true;
-    html += `<h2>${labels[q]}</h2><ul>`;
+    html += `<h2 class="${qClass[q]}">${labels[q]}</h2><ul>`;
     items.forEach(t=>{
       const dl = t.deadline ? ` — יעד: ${escapeHtml(t.deadline)}` : '';
-      html += `<li><b>${escapeHtml(t.title)}</b> <span class="cat">(${escapeHtml(t.category)})</span>${dl}</li>`;
+      html += `<li><span class="box">☐</span><b>${escapeHtml(t.title)}</b> <span class="cat">(${escapeHtml(t.category)})</span>${dl}</li>`;
+      (t.subtasks||[]).forEach(s=>{
+        html += `<li class="sub"><span class="box">☐</span>${escapeHtml(s.title)}</li>`;
+      });
     });
     html += `</ul>`;
   }
