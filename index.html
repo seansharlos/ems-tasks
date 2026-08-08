@@ -114,6 +114,18 @@
   .spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--amber);border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;}
   @keyframes spin{to{transform:rotate(360deg);}}
   @media (prefers-reduced-motion: reduce){.quad{transition:none;} .spinner{animation:none;}}
+  #print-view{display:none;}
+  @media print{
+    body *{visibility:hidden;}
+    #print-view, #print-view *{visibility:visible;}
+    #print-view{display:block;position:absolute;top:0;right:0;left:0;background:#fff;color:#111;padding:20px;direction:rtl;font-family:Arial,sans-serif;}
+    #print-view h1{font-size:20px;margin:0 0 4px;}
+    #print-view .pdate{font-size:12px;color:#555;margin-bottom:18px;}
+    #print-view h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:4px;}
+    #print-view ul{margin:0;padding-inline-start:20px;}
+    #print-view li{margin-bottom:6px;font-size:13px;}
+    #print-view .cat{color:#666;}
+  }
 </style>
 </head>
 <body>
@@ -432,6 +444,9 @@ function render(){
         ${renderSyncPill()}
       </div>
       <div class="header-actions">
+        <button class="icon-round" onclick="exportPdf()" aria-label="ייצוא ל-PDF" title="ייצוא ל-PDF">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 15h6M9 18h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
         <button class="icon-round ${notifStatus==='on'?'notif-on':''}" onclick="enableNotifications()" aria-label="התראות יומיות" title="התראות יומיות">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.73 21a2 2 0 01-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -455,8 +470,32 @@ function render(){
     <div id="list">${renderList()}</div>
     <div class="footnote">הנתונים נשמרים בפרויקט ה-Firebase הפרטי שלכם, ומסונכרנים אוטומטית בין כל המכשירים שמחוברים אליו.</div>
     ${renderSheet()}
+    <div id="print-view"></div>
   `;
   if(view.sheetOpen){ const el=document.getElementById('f-title'); if(el) el.focus(); }
+}
+
+function exportPdf(){
+  const open = state.tasks.filter(t=>!t.done);
+  const labels = ['דחוף וחשוב','חשוב, לא דחוף','דחוף, לא חשוב','לא דחוף ולא חשוב'];
+  const today = new Date().toLocaleDateString('he-IL', {weekday:'long', year:'numeric', month:'2-digit', day:'2-digit'});
+  let html = `<h1>סדר עדיפויות יומי</h1><div class="pdate">${escapeHtml(today)}</div>`;
+  let any = false;
+  for(let q=0;q<4;q++){
+    const items = sortTasks(open.filter(t=>quadOf(t)===q));
+    if(!items.length) continue;
+    any = true;
+    html += `<h2>${labels[q]}</h2><ul>`;
+    items.forEach(t=>{
+      const dl = t.deadline ? ` — יעד: ${escapeHtml(t.deadline)}` : '';
+      html += `<li><b>${escapeHtml(t.title)}</b> <span class="cat">(${escapeHtml(t.category)})</span>${dl}</li>`;
+    });
+    html += `</ul>`;
+  }
+  if(!any) html += `<p>אין משימות פתוחות כרגע.</p>`;
+  const pv = document.getElementById('print-view');
+  if(pv) pv.innerHTML = html;
+  setTimeout(()=>window.print(), 50);
 }
 
 function setMode(m){ view.mode=m; render(); }
@@ -563,7 +602,7 @@ async function submitConnect(){
   if(state.syncStatus==='error'){ view.connectError=state.syncError; view.connectScreen=true; render(); }
 }
 
-Object.assign(window, {toggleDone, deleteTask, openEdit, openAdd, closeSheet, closeSheetIfBackdrop, setMode, setActiveQuad, onCatSelectChange, setFormQuad, submitForm, loadData, openConnectSettings, submitConnect, toggleExpand, submitNewSubtask, toggleSubtask, deleteSubtask, enableNotifications});
+Object.assign(window, {toggleDone, deleteTask, openEdit, openAdd, closeSheet, closeSheetIfBackdrop, setMode, setActiveQuad, onCatSelectChange, setFormQuad, submitForm, loadData, openConnectSettings, submitConnect, toggleExpand, submitNewSubtask, toggleSubtask, deleteSubtask, enableNotifications, exportPdf});
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && getConfig() && !view.connectScreen) loadData(true); });
 loadData(false);
 </script>
