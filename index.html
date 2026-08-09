@@ -145,7 +145,7 @@ const QUADS = [
 ];
 
 let state = { tasks:[], categories:[...DEFAULT_CATEGORIES], loaded:false, syncStatus:'idle', syncError:null };
-let view = { mode:'quadrant', activeQuad:null, sheetOpen:false, editingId:null, form:null, connectScreen:false, connectError:null };
+let view = { mode:'quadrant', activeQuad:null, sheetOpen:false, editingId:null, form:null, connectScreen:false, connectError:null, screen:'main' };
 let db = null;
 let expandedTasks = {};
 
@@ -283,7 +283,7 @@ function renderList(){
   if(state.syncStatus==='error'){
     return `<div class="error-box">בעיה בהתחברות ל-Firebase:<br>${escapeHtml(state.syncError||'')}<br><button class="btn-secondary" style="margin-top:10px;" onclick="loadData(false)">נסה שוב</button></div>`;
   }
-  const open=state.tasks.filter(t=>!t.done), done=state.tasks.filter(t=>t.done);
+  const open=state.tasks.filter(t=>!t.done);
   if(state.tasks.length===0) return `<div class="empty">אין עדיין משימות.<br>לחצו על "הוספת משימה" כדי להתחיל לארגן את סדר היום.</div>`;
   let html=''; let pool=open;
   if(view.activeQuad!==null) pool=pool.filter(t=>quadOf(t)===view.activeQuad);
@@ -310,10 +310,30 @@ function renderList(){
     });
     if(!any) html+=`<div class="empty">אין משימות פתוחות בסינון הנוכחי.</div>`;
   }
-  if(done.length){
-    html+=`<div class="group-title" style="margin-top:26px;"><span>הושלמו</span><span class="count mono">${done.length}</span></div>`;
-    html+=sortTasks(done).map(renderTaskRow).join('');
+  return html;
+}
+
+function renderDoneScreen(){
+  const done = sortTasks(state.tasks.filter(t=>t.done));
+  let html = `
+    <div class="header">
+      <div class="header-side">
+        <div class="eyebrow">עוזר ניהול משימות · פיקוד</div>
+        <h1>משימות שבוצעו</h1>
+      </div>
+      <div class="header-actions">
+        <button class="icon-round" onclick="showMainScreen()" aria-label="חזרה" title="חזרה">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>`;
+  if(done.length===0){
+    html += `<div class="empty">עדיין אין משימות שהושלמו.</div>`;
+  } else {
+    html += `<div class="group-title"><span>סה"כ הושלמו</span><span class="count mono">${done.length}</span></div>`;
+    html += done.map(renderTaskRow).join('');
   }
+  html += `<div class="footnote">לחיצה על הריבוע ליד משימה תחזיר אותה לרשימת המשימות הפעילות.</div>`;
   return html;
 }
 
@@ -403,6 +423,7 @@ function render(){
   const app=document.getElementById('app');
   if(!state.loaded){ app.innerHTML=`<div class="center-screen"><span class="spinner"></span></div>`; return; }
   if(view.connectScreen){ app.innerHTML=renderConnectScreen(); return; }
+  if(view.screen==='done'){ app.innerHTML = renderDoneScreen(); return; }
   app.innerHTML = `
     <div class="header">
       <div class="header-side">
@@ -411,6 +432,9 @@ function render(){
         ${renderSyncPill()}
       </div>
       <div class="header-actions">
+        <button class="icon-round" onclick="showDoneScreen()" aria-label="משימות שבוצעו" title="משימות שבוצעו">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
         <button class="icon-round" onclick="exportPdf()" aria-label="ייצוא ל-PDF" title="ייצוא ל-PDF">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 15h6M9 18h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
@@ -476,6 +500,8 @@ window.addEventListener('afterprint', function(){
 });
 
 function setMode(m){ view.mode=m; render(); }
+function showDoneScreen(){ view.screen='done'; render(); }
+function showMainScreen(){ view.screen='main'; render(); }
 function setActiveQuad(id){ view.activeQuad=(view.activeQuad===id)?null:id; render(); }
 function openAdd(){ view.editingId=null; view.form={title:'',category:state.categories[0]||'__new__',newCategory:'',quad:0,deadline:''}; view.sheetOpen=true; render(); }
 function openEdit(id){ const t=state.tasks.find(x=>x.id===id); if(!t) return; view.editingId=id; view.form={title:t.title,category:t.category,newCategory:'',quad:quadOf(t),deadline:t.deadline||''}; view.sheetOpen=true; render(); }
@@ -579,7 +605,7 @@ async function submitConnect(){
   if(state.syncStatus==='error'){ view.connectError=state.syncError; view.connectScreen=true; render(); }
 }
 
-Object.assign(window, {toggleDone, deleteTask, openEdit, openAdd, closeSheet, closeSheetIfBackdrop, setMode, setActiveQuad, onCatSelectChange, setFormQuad, submitForm, loadData, openConnectSettings, submitConnect, toggleExpand, submitNewSubtask, toggleSubtask, deleteSubtask, exportPdf});
+Object.assign(window, {toggleDone, deleteTask, openEdit, openAdd, closeSheet, closeSheetIfBackdrop, setMode, setActiveQuad, onCatSelectChange, setFormQuad, submitForm, loadData, openConnectSettings, submitConnect, toggleExpand, submitNewSubtask, toggleSubtask, deleteSubtask, exportPdf, showDoneScreen, showMainScreen});
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && getConfig() && !view.connectScreen) loadData(true); });
 loadData(false);
 </script>
