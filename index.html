@@ -116,9 +116,8 @@
   @media (prefers-reduced-motion: reduce){.quad{transition:none;} .spinner{animation:none;}}
   #print-view{display:none;}
   @media print{
-    body *{visibility:hidden;}
-    #print-view, #print-view *{visibility:visible;}
-    #print-view{display:block;position:absolute;top:0;right:0;left:0;background:#fff;color:#111;padding:20px;direction:rtl;font-family:Arial,sans-serif;}
+    #app.printing > *:not(#print-view){display:none !important;}
+    #print-view{display:block !important;position:static;background:#fff;color:#111;padding:0;direction:rtl;font-family:Arial,sans-serif;}
     #print-view h1{font-size:26px;margin:0 0 6px;text-align:center;font-weight:800;}
     #print-view .pdate{font-size:12px;color:#555;margin-bottom:20px;text-align:center;}
     #print-view h2{font-size:15px;margin:18px 0 6px;padding-bottom:4px;border-bottom:2px solid currentColor;}
@@ -128,7 +127,7 @@
     #print-view h2.q3{color:#5b6b78;}
     #print-view ul{margin:0;padding-inline-start:4px;list-style:none;}
     #print-view li{margin-bottom:7px;font-size:13px;color:#111;}
-    #print-view li.sub{font-size:11px;margin-bottom:5px;margin-inline-end:22px;color:#222;}
+    #print-view li.sub{font-size:11px;margin-bottom:5px;margin-inline-start:26px;color:#222;}
     #print-view .box{display:inline-block;width:14px;font-size:14px;}
     #print-view .cat{color:#666;}
   }
@@ -498,7 +497,7 @@ function exportPdf(){
     items.forEach(t=>{
       const dl = t.deadline ? ` — יעד: ${escapeHtml(t.deadline)}` : '';
       html += `<li><span class="box">☐</span><b>${escapeHtml(t.title)}</b> <span class="cat">(${escapeHtml(t.category)})</span>${dl}</li>`;
-      (t.subtasks||[]).forEach(s=>{
+      (t.subtasks||[]).filter(s=>!s.done).forEach(s=>{
         html += `<li class="sub"><span class="box">☐</span>${escapeHtml(s.title)}</li>`;
       });
     });
@@ -507,8 +506,15 @@ function exportPdf(){
   if(!any) html += `<p>אין משימות פתוחות כרגע.</p>`;
   const pv = document.getElementById('print-view');
   if(pv) pv.innerHTML = html;
+  const appEl = document.getElementById('app');
+  if(appEl) appEl.classList.add('printing');
   setTimeout(()=>window.print(), 50);
 }
+
+window.addEventListener('afterprint', function(){
+  const appEl = document.getElementById('app');
+  if(appEl) appEl.classList.remove('printing');
+});
 
 function setMode(m){ view.mode=m; render(); }
 function setActiveQuad(id){ view.activeQuad=(view.activeQuad===id)?null:id; render(); }
