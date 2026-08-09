@@ -8,7 +8,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&family=Rubik:wght@500;700;800&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-app-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-firestore-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.13.2/firebase-messaging-compat.min.js"></script>
 <style>
   :root{
     --bg:#0F171E; --panel:#1A252F; --panel-2:#212F3A; --border:#2B3A47; --text:#EAF0F4; --text-dim:#8FA3B0;
@@ -46,7 +45,6 @@
   .add-btn{background:var(--amber);color:#241a05;border:0;border-radius:10px;font-weight:800;font-size:13px;padding:10px 14px;cursor:pointer;white-space:nowrap;font-family:inherit;}
   .icon-round{background:var(--panel);border:1px solid var(--border);color:var(--text-dim);border-radius:9px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
   .icon-round:hover{color:var(--text);}
-  .icon-round.notif-on{color:var(--amber);border-color:var(--amber-dim);background:var(--amber-dim);}
   .add-btn:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
   .sync-pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-dim);margin-top:8px;}
   .sync-pill .d{width:7px;height:7px;border-radius:50%;background:var(--green);}
@@ -138,9 +136,6 @@
 
 <script>
 const CFG_KEY = 'ems_task_manager_firebase_config_v1';
-// שלב 8 בהדרכה: הדביקו כאן את מפתח ה-VAPID שתקבלו מ-Firebase Console → Project settings → Cloud Messaging
-const VAPID_KEY = 'BCpOIrWKw_VRyt-nUH5vVKToMrFJnUyOmSo6dCeaJ3HYL96r9zlBF3vGxaJqpOEmcIwU_B0jCF_-wegvElZjuig';
-let notifStatus = 'unknown'; // 'unknown' | 'enabling' | 'on' | 'off' | 'error'
 const DEFAULT_CATEGORIES = ['כוח אדם','הדרכה ואימונים','ציוד ולוגיסטיקה','בקרת איכות ותלונות','דוחות ותיעוד'];
 const QUADS = [
   {id:0,label:'דחוף וחשוב',sub:'לטפל מיד',cls:'q0'},
@@ -195,35 +190,6 @@ async function insertTaskServer(row){
 async function patchTaskServer(id, fields){ await db.collection('ems_tasks').doc(id).update(fields); }
 async function deleteTaskServer(id){ await db.collection('ems_tasks').doc(id).delete(); }
 
-async function enableNotifications(){
-  if(!('Notification' in window) || !('serviceWorker' in navigator)){
-    alert('הדפדפן הזה לא תומך בהתראות. פתחו את האתר ב-Chrome.');
-    return;
-  }
-  try{
-    if(!ensureFirebase()){ alert('צריך להתחבר קודם למסד הנתונים (חיבור חד-פעמי).'); return; }
-  }catch(e){ alert('שגיאת חיבור: ' + (e.message||e)); return; }
-  if(VAPID_KEY === 'PASTE_VAPID_KEY_HERE'){
-    alert('עדיין לא הוגדר מפתח VAPID בקובץ. זה השלב הבא בהדרכה.');
-    return;
-  }
-  notifStatus = 'enabling'; render();
-  try{
-    const perm = await Notification.requestPermission();
-    if(perm !== 'granted'){ notifStatus='off'; render(); alert('לא אושרה הרשאה להתראות.'); return; }
-    const reg = await navigator.serviceWorker.register('firebase-messaging-sw.js');
-    const messaging = firebase.messaging();
-    const token = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
-    await db.collection('device_tokens').doc('phone').set({
-      token, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    notifStatus = 'on'; render();
-  }catch(e){
-    notifStatus = 'error'; render();
-    alert('הפעלת התראות נכשלה: ' + (e.message||e));
-  }
-}
-
 async function loadData(silent){
   if(!getConfig()){ view.connectScreen = true; state.loaded = true; render(); return; }
   if(!silent) state.syncStatus = 'loading';
@@ -232,10 +198,6 @@ async function loadData(silent){
     ensureFirebase();
     const rows = await fetchTasksFromServer();
     state.tasks = rows.map(r=>({id:r.id,title:r.title,category:r.category,urgent:!!r.urgent,important:!!r.important,deadline:r.deadline||null,done:!!r.done,subtasks:Array.isArray(r.subtasks)?r.subtasks:[]}));
-    try{
-      const tokDoc = await db.collection('device_tokens').doc('phone').get();
-      notifStatus = tokDoc.exists ? 'on' : 'off';
-    }catch(e){ /* לא קריטי - משאירים unknown */ }
     state.syncStatus='ok'; state.syncError=null;
   }catch(e){
     state.syncStatus='error'; state.syncError = e.message || String(e);
@@ -452,9 +414,6 @@ function render(){
         <button class="icon-round" onclick="exportPdf()" aria-label="ייצוא ל-PDF" title="ייצוא ל-PDF">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 15h6M9 18h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
-        <button class="icon-round ${notifStatus==='on'?'notif-on':''}" onclick="enableNotifications()" aria-label="התראות יומיות" title="התראות יומיות">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.73 21a2 2 0 01-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
         <button class="icon-round" onclick="loadData(false)" aria-label="רענון" title="רענון">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 11-3-6.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M21 3v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -620,7 +579,7 @@ async function submitConnect(){
   if(state.syncStatus==='error'){ view.connectError=state.syncError; view.connectScreen=true; render(); }
 }
 
-Object.assign(window, {toggleDone, deleteTask, openEdit, openAdd, closeSheet, closeSheetIfBackdrop, setMode, setActiveQuad, onCatSelectChange, setFormQuad, submitForm, loadData, openConnectSettings, submitConnect, toggleExpand, submitNewSubtask, toggleSubtask, deleteSubtask, enableNotifications, exportPdf});
+Object.assign(window, {toggleDone, deleteTask, openEdit, openAdd, closeSheet, closeSheetIfBackdrop, setMode, setActiveQuad, onCatSelectChange, setFormQuad, submitForm, loadData, openConnectSettings, submitConnect, toggleExpand, submitNewSubtask, toggleSubtask, deleteSubtask, exportPdf});
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && getConfig() && !view.connectScreen) loadData(true); });
 loadData(false);
 </script>
