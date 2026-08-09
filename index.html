@@ -74,6 +74,12 @@
   .icon-btn:hover{color:var(--text);background:var(--panel-2);}
   .empty{text-align:center;color:var(--text-dim);font-size:13px;padding:36px 10px;border:1px dashed var(--border);border-radius:12px;margin-top:10px;}
   .subtasks{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px;}
+  .task-notes{font-size:12.5px;color:var(--text-dim);background:var(--panel-2);border-radius:8px;padding:8px 10px;white-space:pre-wrap;line-height:1.5;}
+  .cat-manage-list{display:flex;flex-direction:column;gap:8px;margin-top:14px;}
+  .cat-manage-row{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 10px;}
+  .cat-manage-row input{flex:1;background:transparent;border:0;color:var(--text);font-size:14px;padding:4px 2px;}
+  .cat-manage-row input:focus{outline:none;border-bottom:1px solid var(--focus);}
+  .cat-count{color:var(--text-dim);font-size:12px;}
   .subtask-row{display:flex;align-items:center;gap:8px;}
   .subcheck{width:18px;height:18px;border-radius:5px;border:2px solid var(--text-dim);background:transparent;flex:none;cursor:pointer;font-size:11px;line-height:1;color:var(--bg);display:flex;align-items:center;justify-content:center;}
   .subcheck.done{background:var(--teal);border-color:var(--teal);}
@@ -91,6 +97,7 @@
   label:first-of-type{margin-top:0;}
   input[type=text],input[type=date],select,textarea{width:100%;background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:10px 11px;font-size:14px;font-family:inherit;}
   textarea{font-family:'Roboto Mono',monospace;font-size:12px;direction:ltr;text-align:left;min-height:130px;resize:vertical;}
+  textarea.notes-input{font-family:'Heebo','Rubik',sans-serif;font-size:14px;direction:rtl;text-align:right;min-height:70px;}
   .cat-row{display:flex;gap:8px;}
   .cat-row select{flex:1;}
   .quad-pick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;}
@@ -184,11 +191,25 @@ async function fetchTasksFromServer(){
 async function insertTaskServer(row){
   await db.collection('ems_tasks').doc(row.id).set({
     title:row.title, category:row.category, urgent:row.urgent, important:row.important,
-    deadline:row.deadline, done:row.done, subtasks:row.subtasks||[], createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    deadline:row.deadline, done:row.done, subtasks:row.subtasks||[], notes:row.notes||'', doneAt:null,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
 }
 async function patchTaskServer(id, fields){ await db.collection('ems_tasks').doc(id).update(fields); }
 async function deleteTaskServer(id){ await db.collection('ems_tasks').doc(id).delete(); }
+async function saveCategories(){
+  try{ await db.collection('app_meta').doc('categories').set({ list: state.categories }); }
+  catch(e){ console.error('שמירת קטגוריות נכשלה', e); }
+}
+const DONE_RETENTION_DAYS = 30;
+async function cleanupOldDoneTasks(){
+  const cutoff = Date.now() - DONE_RETENTION_DAYS*24*60*60*1000;
+  const stale = state.tasks.filter(t=>t.done && t.doneAt && new Date(t.doneAt).getTime() < cutoff);
+  if(!stale.length) return;
+  state.tasks = state.tasks.filter(t=>!stale.includes(t));
+  try{ await Promise.all(stale.map(t=>deleteTaskServer(t.id))); }
+  catch(e){ console.error('ניקוי אוטומטי נכשל', e); }
+}
 
 async function loadData(silent){
   if(!getConfig()){ view.connectScreen = true; state.loaded = true; render(); return; }
@@ -197,7 +218,21 @@ async function loadData(silent){
   try{
     ensureFirebase();
     const rows = await fetchTasksFromServer();
-    state.tasks = rows.map(r=>({id:r.id,title:r.title,category:r.category,urgent:!!r.urgent,important:!!r.important,deadline:r.deadline||null,done:!!r.done,subtasks:Array.isArray(r.subtasks)?r.subtasks:[]}));
+    state.tasks = rows.map(r=>({id:r.id,title:r.title,category:r.category,urgent:!!r.urgent,important:!!r.important,deadline:r.deadline||null,done:!!r.done,subtasks:Array.isArray(r.subtasks)?r.subtasks:[],notes:r.notes||'',doneAt:r.doneAt||null}));
+
+    let cats = [...DEFAULT_CATEGORIES];
+    try{
+      const catDoc = await db.collection('app_meta').doc('categories').get();
+      if(catDoc.exists && Array.isArray(catDoc.data().list)) cats = catDoc.data().list;
+    }catch(e){ /* משתמשים בברירת המחדל */ }
+    const usedCats = [...new Set(state.tasks.map(t=>t.category))];
+    const missing = usedCats.filter(c=>!cats.includes(c));
+    if(missing.length) cats = [...cats, ...missing];
+    state.categories = cats;
+    if(missing.length) saveCategories();
+
+    await cleanupOldDoneTasks();
+
     state.syncStatus='ok'; state.syncError=null;
   }catch(e){
     state.syncStatus='error'; state.syncError = e.message || String(e);
@@ -246,6 +281,7 @@ function renderTaskRow(t){
         <span class="badge cat">${escapeHtml(t.category)}</span>
         <span class="badge ${QUADS[q].cls}">${QUADS[q].label}</span>
         ${deadlineBadge(t)}
+        ${t.notes ? `<span class="badge cat" style="cursor:pointer;" onclick="toggleExpand('${t.id}')">📝 הערה</span>` : ''}
         <span class="badge cat" style="cursor:pointer;" onclick="toggleExpand('${t.id}')">${subs.length? (expanded?'▲ ':'▼ ') + 'תתי-משימות ' + doneCount + '/' + subs.length : '+ תת-משימה'}</span>
       </div>
       ${expanded ? renderSubtasks(t) : ''}
@@ -264,7 +300,7 @@ function renderTaskRow(t){
 function renderSubtasks(t){
   const subs = t.subtasks||[];
   return `<div class="subtasks">
-    ${subs.map(s=>`
+    ${t.notes ? `<div class="task-notes">${escapeHtml(t.notes)}</div>` : ''}    ${subs.map(s=>`
       <div class="subtask-row">
         <button class="subcheck ${s.done?'done':''}" onclick="toggleSubtask('${t.id}','${s.id}')" aria-label="סמן תת-משימה">${s.done?'✓':''}</button>
         <span class="subtitle ${s.done?'done':''}">${escapeHtml(s.title)}</span>
@@ -310,6 +346,40 @@ function renderList(){
     });
     if(!any) html+=`<div class="empty">אין משימות פתוחות בסינון הנוכחי.</div>`;
   }
+  return html;
+}
+
+function renderCategoriesScreen(){
+  let html = `
+    <div class="header">
+      <div class="header-side">
+        <div class="eyebrow">עוזר ניהול משימות · פיקוד</div>
+        <h1>ניהול קטגוריות</h1>
+      </div>
+      <div class="header-actions">
+        <button class="icon-round" onclick="showMainScreen()" aria-label="חזרה" title="חזרה">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="cat-manage-list">`;
+  state.categories.forEach((c,i)=>{
+    const count = state.tasks.filter(t=>t.category===c).length;
+    html += `
+      <div class="cat-manage-row">
+        <input type="text" value="${escapeHtml(c)}" onchange="renameCategory(${i}, this.value)" />
+        <span class="cat-count mono">${count}</span>
+        <button class="icon-btn" onclick="deleteCategory(${i})" aria-label="מחיקת קטגוריה">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6h16z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>`;
+  });
+  html += `</div>
+    <div class="subtask-add-row" style="margin-top:14px;">
+      <input type="text" id="new-cat-name" placeholder="קטגוריה חדשה" onkeydown="if(event.key==='Enter'){addCategoryFromScreen()}" />
+      <button class="btn-primary" style="flex:none;padding:8px 14px;" onclick="addCategoryFromScreen()">הוספה</button>
+    </div>
+    <div class="footnote">שינוי שם קטגוריה מעדכן אוטומטית את כל המשימות הקיימות שמשויכות אליה. מחיקת קטגוריה לא מוחקת משימות — הן פשוט ישמרו את השם הישן, גם אם הוא לא מופיע יותר ברשימה לבחירה.</div>`;
   return html;
 }
 
@@ -380,10 +450,13 @@ function renderSheet(){
         </select>
       </div>
       ${f.category==='__new__'?`<input type="text" id="f-cat-new" placeholder="שם הקטגוריה החדשה" style="margin-top:8px;" value="${escapeHtml(f.newCategory||'')}" />`:''}
+      <button type="button" class="btn-secondary" style="margin-top:8px;font-size:11.5px;padding:6px 10px;" onclick="showCategoriesScreen()">⚙ ניהול קטגוריות</button>
       <label>עדיפות</label>
       <div class="quad-pick">${QUADS.map(q=>`<div class="qp ${q.cls} ${f.quad===q.id?'sel':''}" onclick="setFormQuad(${q.id})"><div class="t">${q.label}</div><div class="s">${q.sub}</div></div>`).join('')}</div>
       <label>דדליין (לא חובה)</label>
       <input type="date" id="f-deadline" value="${f.deadline||''}" />
+      <label>הערות (לא חובה)</label>
+      <textarea id="f-notes" class="notes-input" placeholder="פרטים נוספים, אנשי קשר, מספרי טלפון...">${escapeHtml(f.notes||'')}</textarea>
       <div class="sheet-actions">
         <button class="btn-secondary" onclick="closeSheet()">ביטול</button>
         <button class="btn-primary" onclick="submitForm()">${isEdit?'עדכון':'הוספת משימה'}</button>
@@ -424,6 +497,7 @@ function render(){
   if(!state.loaded){ app.innerHTML=`<div class="center-screen"><span class="spinner"></span></div>`; return; }
   if(view.connectScreen){ app.innerHTML=renderConnectScreen(); return; }
   if(view.screen==='done'){ app.innerHTML = renderDoneScreen(); return; }
+  if(view.screen==='categories'){ app.innerHTML = renderCategoriesScreen(); return; }
   app.innerHTML = `
     <div class="header">
       <div class="header-side">
@@ -502,9 +576,44 @@ window.addEventListener('afterprint', function(){
 function setMode(m){ view.mode=m; render(); }
 function showDoneScreen(){ view.screen='done'; render(); }
 function showMainScreen(){ view.screen='main'; render(); }
+function showCategoriesScreen(){ view.sheetOpen=false; view.screen='categories'; render(); }
+
+async function renameCategory(index, newNameRaw){
+  const newName=(newNameRaw||'').trim();
+  const oldName=state.categories[index];
+  if(!newName || newName===oldName){ render(); return; }
+  if(state.categories.includes(newName)){ alert('קטגוריה בשם הזה כבר קיימת'); render(); return; }
+  state.categories[index]=newName;
+  const affected=state.tasks.filter(t=>t.category===oldName);
+  affected.forEach(t=>t.category=newName);
+  render();
+  try{
+    await saveCategories();
+    await Promise.all(affected.map(t=>patchTaskServer(t.id, {category:newName})));
+  }catch(e){ alert('עדכון חלקי נכשל: '+(e.message||e)); }
+}
+
+function deleteCategory(index){
+  const name=state.categories[index];
+  if(!confirm('למחוק את הקטגוריה "'+name+'"? משימות קיימות עם הקטגוריה הזו יישארו כפי שהן.')) return;
+  state.categories=state.categories.filter((c,i)=>i!==index);
+  saveCategories();
+  render();
+}
+
+async function addCategoryFromScreen(){
+  const el=document.getElementById('new-cat-name');
+  if(!el) return;
+  const name=el.value.trim();
+  if(!name) return;
+  if(state.categories.includes(name)){ alert('קטגוריה כזו כבר קיימת'); return; }
+  state.categories.push(name);
+  render();
+  await saveCategories();
+}
 function setActiveQuad(id){ view.activeQuad=(view.activeQuad===id)?null:id; render(); }
-function openAdd(){ view.editingId=null; view.form={title:'',category:state.categories[0]||'__new__',newCategory:'',quad:0,deadline:''}; view.sheetOpen=true; render(); }
-function openEdit(id){ const t=state.tasks.find(x=>x.id===id); if(!t) return; view.editingId=id; view.form={title:t.title,category:t.category,newCategory:'',quad:quadOf(t),deadline:t.deadline||''}; view.sheetOpen=true; render(); }
+function openAdd(){ view.editingId=null; view.form={title:'',category:state.categories[0]||'__new__',newCategory:'',quad:0,deadline:'',notes:''}; view.sheetOpen=true; render(); }
+function openEdit(id){ const t=state.tasks.find(x=>x.id===id); if(!t) return; view.editingId=id; view.form={title:t.title,category:t.category,newCategory:'',quad:quadOf(t),deadline:t.deadline||'',notes:t.notes||''}; view.sheetOpen=true; render(); }
 function closeSheet(){ view.sheetOpen=false; view.editingId=null; view.form=null; render(); }
 function closeSheetIfBackdrop(e){ if(e.target.classList.contains('sheet-backdrop')) closeSheet(); }
 function onCatSelectChange(val){ readFormFields(); view.form.category=val; render(); }
@@ -542,9 +651,10 @@ async function deleteSubtask(taskId, subId){
 }
 
 function readFormFields(){
-  const t=document.getElementById('f-title'), d=document.getElementById('f-deadline'), nc=document.getElementById('f-cat-new');
+  const t=document.getElementById('f-title'), d=document.getElementById('f-deadline'), nc=document.getElementById('f-cat-new'), n=document.getElementById('f-notes');
   view.form.title=t?t.value:view.form.title;
   view.form.deadline=d?d.value:view.form.deadline;
+  view.form.notes=n?n.value:view.form.notes;
   if(nc) view.form.newCategory=nc.value;
 }
 
@@ -554,33 +664,37 @@ async function submitForm(){
   const title=(f.title||'').trim();
   if(!title){ const el=document.getElementById('f-title'); if(el) el.style.borderColor='var(--red)'; return; }
   let category=f.category;
+  let newCatAdded=false;
   if(category==='__new__'){
     category=(f.newCategory||'').trim();
     if(!category){ const el=document.getElementById('f-cat-new'); if(el) el.style.borderColor='var(--red)'; return; }
-    if(!state.categories.includes(category)) state.categories.push(category);
+    if(!state.categories.includes(category)){ state.categories.push(category); newCatAdded=true; }
   }
   const urgent=(f.quad===0||f.quad===2);
   const important=(f.quad===0||f.quad===1);
+  const notes=(f.notes||'').trim();
   try{
     if(view.editingId){
-      const fields={title,category,urgent,important,deadline:f.deadline||null};
+      const fields={title,category,urgent,important,deadline:f.deadline||null,notes};
       await patchTaskServer(view.editingId, fields);
       const t=state.tasks.find(x=>x.id===view.editingId);
       if(t) Object.assign(t, fields);
     } else {
-      const row={id:uid(),title,category,urgent,important,deadline:f.deadline||null,done:false,subtasks:[]};
+      const row={id:uid(),title,category,urgent,important,deadline:f.deadline||null,done:false,subtasks:[],notes,doneAt:null};
       await insertTaskServer(row);
       state.tasks.push(row);
     }
+    if(newCatAdded) saveCategories();
     closeSheet();
   }catch(e){ alert('שמירה נכשלה: ' + (e.message||e)); }
 }
 
 async function toggleDone(id){
   const t=state.tasks.find(x=>x.id===id); if(!t) return;
-  const prev=t.done; t.done=!t.done; render();
-  try{ await patchTaskServer(id,{done:t.done}); }
-  catch(e){ t.done=prev; render(); alert('העדכון נכשל: '+(e.message||e)); }
+  const prev=t.done; const prevDoneAt=t.doneAt;
+  t.done=!t.done; t.doneAt = t.done ? new Date().toISOString() : null; render();
+  try{ await patchTaskServer(id,{done:t.done, doneAt:t.doneAt}); }
+  catch(e){ t.done=prev; t.doneAt=prevDoneAt; render(); alert('העדכון נכשל: '+(e.message||e)); }
 }
 async function deleteTask(id){
   const prevTasks=state.tasks;
@@ -605,7 +719,7 @@ async function submitConnect(){
   if(state.syncStatus==='error'){ view.connectError=state.syncError; view.connectScreen=true; render(); }
 }
 
-Object.assign(window, {toggleDone, deleteTask, openEdit, openAdd, closeSheet, closeSheetIfBackdrop, setMode, setActiveQuad, onCatSelectChange, setFormQuad, submitForm, loadData, openConnectSettings, submitConnect, toggleExpand, submitNewSubtask, toggleSubtask, deleteSubtask, exportPdf, showDoneScreen, showMainScreen});
+Object.assign(window, {toggleDone, deleteTask, openEdit, openAdd, closeSheet, closeSheetIfBackdrop, setMode, setActiveQuad, onCatSelectChange, setFormQuad, submitForm, loadData, openConnectSettings, submitConnect, toggleExpand, submitNewSubtask, toggleSubtask, deleteSubtask, exportPdf, showDoneScreen, showMainScreen, showCategoriesScreen, renameCategory, deleteCategory, addCategoryFromScreen});
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && getConfig() && !view.connectScreen) loadData(true); });
 loadData(false);
 </script>
